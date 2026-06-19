@@ -1,0 +1,15 @@
+{
+  "buildCommand": "echo 'Frontend is static'",
+  "publicSource": "./",
+  "cleanUrls": true,
+  "routes": [
+    {
+      "src": "^/api/(.*)",
+      "dest": "https://your-backend-url.onrender.com/api/$1"
+    },
+    {
+      "src": "/.*",
+      "dest": "/index.html"
+    }
+  ]
+}

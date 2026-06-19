@@ -1,0 +1,14 @@
+# Ignore files
+.DS_Store
+.env
+*.log
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.venv/
+venv/
+node_modules/
