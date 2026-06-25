@@ -1,0 +1,24 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  backend-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t smart-dashboard backend
+      - run: echo "Deploy backend to Render/Heroku using secrets"
+
+  frontend-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --prefix frontend
+      - run: npx eslint frontend/app.js
+      - run: echo "Deploy frontend to GitHub Pages"

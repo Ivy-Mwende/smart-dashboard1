@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Smart Dashboard</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero">
+        <h1>Smart Dashboard</h1>
+        <p>Track accounts, transactions, and AI insights in one place.</p>
+      </header>
+
+      <section class="auth-card">
+        <h2>Login / Register</h2>
+        <form id="auth-form">
+          <input id="name" placeholder="Name" />
+          <input id="email" placeholder="Email" />
+          <input id="password" type="password" placeholder="Password" />
+          <button type="submit">Continue</button>
+        </form>
+      </section>
+
+      <section class="dashboard">
+        <div class="panel">
+          <h3>Accounts</h3>
+          <ul id="accounts-list"></ul>
+        </div>
+        <div class="panel">
+          <h3>Transactions</h3>
+          <ul id="transactions-list"></ul>
+        </div>
+        <div class="panel">
+          <h3>Insights</h3>
+          <ul id="insights-list"></ul>
+        </div>
+        <div class="panel chart-panel">
+          <canvas id="spending-chart"></canvas>
+        </div>
+      </section>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
