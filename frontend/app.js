@@ -68,7 +68,7 @@ function getLocalFallback(path, options = {}) {
     users[email] = user;
     saveStoredUsers(users);
     saveStoredCurrentUser(user);
-    return createLocalResponse({ message: "User registered", user: { id: user.id, email: user.email, role: user.role } }, 201);
+    return createLocalResponse({ access_token: `local-demo-token-${user.id}`, message: "User registered", user: { id: user.id, email: user.email, role: user.role } }, 201);
   }
 
   if (path.includes("/login")) {
