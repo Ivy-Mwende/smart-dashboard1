@@ -3,3 +3,6 @@ builder = "nixpacks"
 
 [build.env]
 NIXPACKS_PATH = "backend"
+
+[deploy]
+startCommand = "gunicorn app:app --bind 0.0.0.0:$PORT"
