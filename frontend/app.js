@@ -164,11 +164,13 @@ function showAuthView() {
 }
 
 async function parseJsonResponse(response) {
-  const contentType = response.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    return response.json();
+  if (!response) return {};
+  const headers = response.headers || {};
+  const contentType = typeof headers.get === "function" ? headers.get("content-type") || "" : "";
+  if (contentType.includes("application/json") || typeof response.json === "function") {
+    return response.json ? response.json() : response;
   }
-  const text = await response.text();
+  const text = response.text ? await response.text() : JSON.stringify(response);
   return text ? { message: text } : {};
 }
 
