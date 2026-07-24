@@ -1,4 +1,4 @@
-const apiBase = "http://localhost:5000";
+const apiBase = (window.__API_BASE__ || "https://smart-dashboard1.up.railway.app").replace(/\/$/, "");
 const authForm = document.getElementById("auth-form");
 const nameInput = document.getElementById("name");
 const emailInput = document.getElementById("email");
