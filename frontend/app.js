@@ -1,4 +1,4 @@
-const apiBase = (window.__API_BASE__ || window.__RAILWAY_API__ || "https://smart-dashboard1.up.railway.app").replace(/\/$/, "");
+const apiBase = (window.__API_BASE__ || window.__RAILWAY_API__ || "https://smart-dashboard-1-backend.onrender.com").replace(/\/$/, "");
 const fallbackApiBase = "https://smart-dashboard-1-backend.onrender.com";
 const authForm = document.getElementById("auth-form");
 const nameInput = document.getElementById("name");
