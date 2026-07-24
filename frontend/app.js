@@ -48,10 +48,13 @@ function saveStoredCurrentUser(user) {
 }
 
 function createLocalResponse(payload, status = 200) {
-  return new Response(JSON.stringify(payload), {
+  return {
+    ok: status >= 200 && status < 300,
     status,
-    headers: { "Content-Type": "application/json" },
-  });
+    headers: { get: () => "application/json" },
+    json: async () => payload,
+    text: async () => JSON.stringify(payload),
+  };
 }
 
 function getLocalFallback(path, options = {}) {
