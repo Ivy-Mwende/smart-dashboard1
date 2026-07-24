@@ -1,4 +1,5 @@
 const apiBase = (window.__API_BASE__ || window.__RAILWAY_API__ || "https://smart-dashboard1.up.railway.app").replace(/\/$/, "");
+const fallbackApiBase = "https://smart-dashboard-1-backend.onrender.com";
 const authForm = document.getElementById("auth-form");
 const nameInput = document.getElementById("name");
 const emailInput = document.getElementById("email");
@@ -90,13 +91,20 @@ async function parseJsonResponse(response) {
 async function request(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(`${apiBase}${path}`, { ...options, headers, credentials: "include" });
-  if (!response.ok) {
-    const data = await parseJsonResponse(response);
-    const message = data.error || data.message || `Request failed with ${response.status}`;
-    throw new Error(message);
+  const bases = [apiBase, fallbackApiBase];
+  let lastError;
+  for (const base of bases) {
+    try {
+      const response = await fetch(`${base}${path}`, { ...options, headers, credentials: "include" });
+      if (!response.ok) {
+        throw new Error(`Request failed with ${response.status}`);
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+    }
   }
-  return response;
+  throw lastError || new Error("Unable to connect to the server.");
 }
 
 async function loginOrRegister() {
