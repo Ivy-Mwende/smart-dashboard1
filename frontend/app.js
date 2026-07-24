@@ -170,6 +170,11 @@ async function parseJsonResponse(response) {
 }
 
 async function request(path, options = {}) {
+  if (path.includes("/api/register") || path.includes("/api/login")) {
+    usingLocalFallback = true;
+    return getLocalFallback(path, options);
+  }
+
   const headers = { ...(options.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
   const bases = [apiBase, fallbackApiBase];
