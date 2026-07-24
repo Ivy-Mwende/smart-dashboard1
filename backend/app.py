@@ -1,10 +1,13 @@
 import os
+from collections import defaultdict
 from datetime import timedelta
+from time import time
 from functools import wraps
 
 import bcrypt
-from flask import Flask, jsonify, request
-from flask_jwt_extended import JWTManager, create_access_token, get_jwt, get_jwt_identity, jwt_required
+import jwt
+from flask import Flask, g, jsonify, request
+from flask_jwt_extended import JWTManager, create_access_token
 from sqlalchemy.exc import SQLAlchemyError
 
 from db import Base, SessionLocal, engine
@@ -13,10 +16,26 @@ from models import Account, AuditLog, MLInsights, Preferences, Transaction, User
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///smart_dashboard.db")
-app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "dev-secret")
+app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
+if not app.config["JWT_SECRET_KEY"]:
+    raise RuntimeError("JWT_SECRET_KEY environment variable must be set")
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
+app.config["JWT_TOKEN_LOCATION"] = ["headers"]
+app.config["JWT_HEADER_TYPE"] = "Bearer"
 
 JWTManager(app)
+
+LOGIN_ATTEMPTS = defaultdict(list)
+
+
+def is_rate_limited(identifier: str, limit: int = 10, window_seconds: int = 60) -> bool:
+    now = time()
+    attempts = LOGIN_ATTEMPTS[identifier]
+    attempts[:] = [attempt for attempt in attempts if now - attempt < window_seconds]
+    if len(attempts) >= limit:
+        return True
+    attempts.append(now)
+    return False
 
 try:
     Base.metadata.create_all(bind=engine)
@@ -36,13 +55,48 @@ def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
 
 
+def get_current_claims() -> dict:
+    token = request.headers.get("Authorization", "")
+    if not token.startswith("Bearer "):
+        raise ValueError("Missing token")
+
+    encoded_token = token.split(" ", 1)[1].strip()
+    try:
+        payload = jwt.decode(encoded_token, app.config["JWT_SECRET_KEY"], algorithms=["HS256"])
+    except jwt.ExpiredSignatureError as exc:
+        raise ValueError("Token expired") from exc
+    except jwt.InvalidTokenError as exc:
+        raise ValueError("Invalid token") from exc
+
+    return payload
+
+
+def jwt_required_or_401(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            claims = get_current_claims()
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 401
+        g.current_claims = claims
+        g.current_user_id = claims.get("sub")
+        return fn(*args, **kwargs)
+
+    wrapper.__name__ = fn.__name__
+    return wrapper
+
+
 def admin_required(fn):
     @wraps(fn)
-    @jwt_required()
     def wrapper(*args, **kwargs):
-        claims = get_jwt()
+        try:
+            claims = get_current_claims()
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 401
         if claims.get("role") != "admin":
             return jsonify({"error": "Admin access required"}), 403
+        g.current_claims = claims
+        g.current_user_id = claims.get("sub")
         return fn(*args, **kwargs)
 
     wrapper.__name__ = fn.__name__
@@ -66,14 +120,15 @@ def register():
             name=data.get("name", "User"),
             email=data.get("email"),
             password_hash=hash_password(data.get("password", "")),
-            role=data.get("role", "user"),
+            role="user",
         )
         db.add(user)
         db.commit()
         return jsonify({"message": "User registered", "user": {"id": user.id, "email": user.email, "role": user.role}}), 201
-    except SQLAlchemyError as exc:
+    except SQLAlchemyError:
         db.rollback()
-        return jsonify({"error": str(exc)}), 500
+        app.logger.exception("Registration failed")
+        return jsonify({"error": "Registration failed"}), 500
     finally:
         db.close()
 
@@ -81,19 +136,33 @@ def register():
 @app.route("/api/login", methods=["POST"])
 def login():
     data = request.get_json(silent=True) or {}
+    identifier = f"{request.remote_addr}:{(data.get('email') or '').strip().lower()}"
+    if is_rate_limited(identifier):
+        return jsonify({"error": "Too many login attempts"}), 429
+
     db = get_db()
     try:
         user = db.query(User).filter(User.email == data.get("email")).first()
         if not user or not verify_password(data.get("password", ""), user.password_hash):
             return jsonify({"error": "Invalid credentials"}), 401
         token = create_access_token(identity=user.id, additional_claims={"role": user.role})
-        return jsonify({"access_token": token, "user": {"id": user.id, "email": user.email, "role": user.role}})
+        response = jsonify({"access_token": token, "user": {"id": user.id, "email": user.email, "role": user.role}})
+        response.set_cookie(
+            "access_token_cookie",
+            token,
+            httponly=True,
+            secure=False,
+            samesite="Lax",
+            max_age=3600,
+        )
+        return response
     finally:
         db.close()
 
 
 @app.route("/api/users", methods=["GET"])
-@jwt_required()
+@jwt_required_or_401
+@admin_required
 def list_users():
     db = get_db()
     users = db.query(User).all()
@@ -101,20 +170,20 @@ def list_users():
 
 
 @app.route("/api/accounts", methods=["GET"])
-@jwt_required()
+@jwt_required_or_401
 def list_accounts():
     db = get_db()
-    user_id = int(get_jwt_identity())
+    user_id = int(g.current_user_id)
     items = db.query(Account).filter(Account.user_id == user_id).all()
     return jsonify([{"id": item.id, "account_type": item.account_type, "balance": item.balance} for item in items])
 
 
 @app.route("/api/accounts", methods=["POST"])
-@jwt_required()
+@jwt_required_or_401
 def create_account():
     data = request.get_json(silent=True) or {}
     db = get_db()
-    user_id = int(get_jwt_identity())
+    user_id = int(g.current_user_id)
     account = Account(user_id=user_id, account_type=data.get("account_type", "checking"), balance=data.get("balance", 0.0))
     db.add(account)
     db.commit()
@@ -122,20 +191,20 @@ def create_account():
 
 
 @app.route("/api/transactions", methods=["GET"])
-@jwt_required()
+@jwt_required_or_401
 def list_transactions():
     db = get_db()
-    user_id = int(get_jwt_identity())
+    user_id = int(g.current_user_id)
     accounts = [a.id for a in db.query(Account).filter(Account.user_id == user_id).all()]
     items = db.query(Transaction).filter(Transaction.account_id.in_(accounts)).all()
     return jsonify([{"id": item.id, "amount": item.amount, "description": item.description, "timestamp": item.timestamp.isoformat()} for item in items])
 
 
 @app.route("/api/preferences", methods=["GET", "POST"])
-@jwt_required()
+@jwt_required_or_401
 def preferences():
     db = get_db()
-    user_id = int(get_jwt_identity())
+    user_id = int(g.current_user_id)
     pref = db.query(Preferences).filter(Preferences.user_id == user_id).first()
     if request.method == "GET":
         return jsonify({"theme": pref.theme if pref else "dark", "notifications_enabled": pref.notifications_enabled if pref else True})
@@ -152,10 +221,10 @@ def preferences():
 
 
 @app.route("/api/insights", methods=["GET"])
-@jwt_required()
+@jwt_required_or_401
 def insights():
     db = get_db()
-    user_id = int(get_jwt_identity())
+    user_id = int(g.current_user_id)
     items = db.query(MLInsights).filter(MLInsights.user_id == user_id).all()
     if not items:
         prediction = build_prediction()
@@ -167,7 +236,7 @@ def insights():
 
 
 @app.route("/api/admin/audit", methods=["GET"])
-@jwt_required()
+@jwt_required_or_401
 @admin_required
 def audit_logs():
     db = get_db()
@@ -176,16 +245,17 @@ def audit_logs():
 
 
 @app.route("/api/admin/log-action", methods=["POST"])
-@jwt_required()
+@jwt_required_or_401
 @admin_required
 def log_action():
     data = request.get_json(silent=True) or {}
     db = get_db()
-    log = AuditLog(admin_id=int(get_jwt_identity()), action=data.get("action", "admin_action"), details=data.get("details", ""))
+    log = AuditLog(admin_id=int(g.current_user_id), action=data.get("action", "admin_action"), details=data.get("details", ""))
     db.add(log)
     db.commit()
     return jsonify({"message": "Audit logged", "id": log.id})
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    debug = os.getenv("FLASK_ENV", "production").lower() == "development"
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=debug)

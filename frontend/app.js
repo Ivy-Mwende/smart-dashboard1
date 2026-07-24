@@ -7,12 +7,21 @@ const accountsList = document.getElementById("accounts-list");
 const transactionsList = document.getElementById("transactions-list");
 const insightsList = document.getElementById("insights-list");
 
-let token = localStorage.getItem("token") || "";
+let token = "";
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 async function request(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(`${apiBase}${path}`, { ...options, headers });
+  const response = await fetch(`${apiBase}${path}`, { ...options, headers, credentials: "include" });
   return response;
 }
 
@@ -32,7 +41,6 @@ async function loginOrRegister(isRegister) {
   const data = await response.json();
   if (data.access_token) {
     token = data.access_token;
-    localStorage.setItem("token", token);
     loadDashboard();
   }
 }
@@ -48,9 +56,9 @@ async function loadDashboard() {
   const transactions = await transactionsRes.json();
   const insights = await insightsRes.json();
 
-  accountsList.innerHTML = accounts.map((a) => `<li>${a.account_type}: $${a.balance}</li>`).join("");
-  transactionsList.innerHTML = transactions.map((t) => `<li>${t.description}: $${t.amount}</li>`).join("");
-  insightsList.innerHTML = insights.map((i) => `<li>${i.prediction}</li>`).join("");
+  accountsList.innerHTML = accounts.map((a) => `<li>${escapeHtml(a.account_type)}: $${escapeHtml(a.balance)}</li>`).join("");
+  transactionsList.innerHTML = transactions.map((t) => `<li>${escapeHtml(t.description)}: $${escapeHtml(t.amount)}</li>`).join("");
+  insightsList.innerHTML = insights.map((i) => `<li>${escapeHtml(i.prediction)}</li>`).join("");
 
   renderChart(transactions);
 }
