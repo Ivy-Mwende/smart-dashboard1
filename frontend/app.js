@@ -272,10 +272,16 @@ async function loadDashboard() {
 
 function renderChart(transactions) {
   if (!window.Chart) return;
+  const canvas = document.getElementById("spending-chart");
+  if (!canvas) return;
+  const existingChart = window.__smartDashboardChart__;
+  if (existingChart) {
+    existingChart.destroy();
+  }
   const data = transactions.slice(0, 5).map((transaction) => Number(transaction.amount || 0));
   const labels = transactions.slice(0, 5).map((transaction) => transaction.description || "Item");
-  const ctx = document.getElementById("spending-chart").getContext("2d");
-  new Chart(ctx, {
+  const ctx = canvas.getContext("2d");
+  window.__smartDashboardChart__ = new Chart(ctx, {
     type: "pie",
     data: {
       labels,
