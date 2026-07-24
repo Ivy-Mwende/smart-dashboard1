@@ -17,13 +17,14 @@ from models import Account, AuditLog, MLInsights, Preferences, Transaction, User
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///smart_dashboard.db")
-app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY") or "dev-secret-change-me"
+app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY") or os.getenv("SECRET_KEY") or ("dev-secret-change-me" if os.getenv("FLASK_ENV", "development").lower() == "development" else "change-me-in-railway")
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
 app.config["JWT_TOKEN_LOCATION"] = ["headers"]
 app.config["JWT_HEADER_TYPE"] = "Bearer"
 
 JWTManager(app)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+allowed_origin = os.getenv("ALLOWED_ORIGIN") or os.getenv("NETLIFY_DOMAIN") or "https://smartdashboard-ivy.netlify.app"
+CORS(app, resources={r"/api/*": {"origins": [allowed_origin, "http://localhost:5500", "http://127.0.0.1:5500"]}})
 
 LOGIN_ATTEMPTS = defaultdict(list)
 

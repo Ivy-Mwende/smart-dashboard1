@@ -1,8 +1,9 @@
-const apiBase = (window.__API_BASE__ || "https://smart-dashboard1.up.railway.app").replace(/\/$/, "");
+const apiBase = (window.__API_BASE__ || window.__RAILWAY_API__ || "https://smart-dashboard1.up.railway.app").replace(/\/$/, "");
 const authForm = document.getElementById("auth-form");
 const nameInput = document.getElementById("name");
 const emailInput = document.getElementById("email");
 const passwordInput = document.getElementById("password");
+const passwordHint = document.getElementById("password-hint");
 const authSubmit = document.getElementById("auth-submit");
 const authMessage = document.getElementById("auth-message");
 const accountsList = document.getElementById("accounts-list");
@@ -15,6 +16,7 @@ const dashboardSection = document.getElementById("dashboard-section");
 const logoutButton = document.getElementById("logout-btn");
 const modeButtons = document.querySelectorAll(".tab-btn");
 const actionButtons = document.querySelectorAll(".action-btn");
+const googleButton = document.getElementById("google-auth");
 
 let token = "";
 let mode = "login";
@@ -31,6 +33,30 @@ function escapeHtml(value) {
 function showMessage(message, type = "info") {
   authMessage.textContent = message;
   authMessage.className = `message${type === "error" ? " error" : ""}`;
+}
+
+function getPasswordStrength(password) {
+  let score = 0;
+  if (password.length >= 8) score += 1;
+  if (/[A-Z]/.test(password)) score += 1;
+  if (/[0-9]/.test(password)) score += 1;
+  if (/[^A-Za-z0-9]/.test(password)) score += 1;
+  return score;
+}
+
+function updatePasswordHint() {
+  const strength = getPasswordStrength(passwordInput.value);
+  if (!passwordInput.value) {
+    passwordHint.textContent = "Use at least 8 characters with a mix of letters, numbers, and symbols.";
+    return;
+  }
+  if (strength < 3) {
+    passwordHint.textContent = "Password strength: weak — add uppercase letters and a symbol.";
+  } else if (strength < 4) {
+    passwordHint.textContent = "Password strength: good.";
+  } else {
+    passwordHint.textContent = "Password strength: strong.";
+  }
 }
 
 function setMode(nextMode) {
@@ -52,13 +78,23 @@ function showAuthView() {
   logoutButton.hidden = true;
 }
 
+async function parseJsonResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+  const text = await response.text();
+  return text ? { message: text } : {};
+}
+
 async function request(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(`${apiBase}${path}`, { ...options, headers });
+  const response = await fetch(`${apiBase}${path}`, { ...options, headers, credentials: "include" });
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || `Request failed with ${response.status}`);
+    const data = await parseJsonResponse(response);
+    const message = data.error || data.message || `Request failed with ${response.status}`;
+    throw new Error(message);
   }
   return response;
 }
@@ -79,13 +115,14 @@ async function loginOrRegister() {
     return;
   }
 
+  authSubmit.disabled = true;
   try {
     const response = await request(`/api/${mode === "register" ? "register" : "login"}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = await response.json();
+    const data = await parseJsonResponse(response);
     if (!data.access_token) {
       throw new Error("No access token returned.");
     }
@@ -95,6 +132,8 @@ async function loginOrRegister() {
     await loadDashboard();
   } catch (error) {
     showMessage(error.message || "Unable to connect to the server.", "error");
+  } finally {
+    authSubmit.disabled = false;
   }
 }
 
@@ -142,15 +181,28 @@ function renderChart(transactions) {
 actionButtons.forEach((button) => {
   button.addEventListener("click", () => {
     const action = button.dataset.action;
-    if (action === "pay") summaryPill.textContent = "Pay ready";
+    if (action === "pay") summaryPill.textContent = "M-Pesa ready";
     if (action === "send") summaryPill.textContent = "Send flow open";
     if (action === "save") summaryPill.textContent = "Savings goal set";
     if (action === "insights") summaryPill.textContent = "Insights refreshed";
-    showMessage(`Action selected: ${action}`);
+    showMessage(action === "pay" ? "M-Pesa integration is ready for your API credentials." : `Action selected: ${action}`);
   });
 });
 
 modeButtons.forEach((button) => button.addEventListener("click", () => setMode(button.dataset.mode)));
+
+googleButton.addEventListener("click", () => {
+  const clientId = window.__GOOGLE_CLIENT_ID__;
+  const redirectUri = window.__GOOGLE_REDIRECT_URI__;
+  if (clientId && redirectUri) {
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20email%20profile`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  } else {
+    showMessage("Google sign-in can be enabled by adding your OAuth client ID and redirect URI.", "info");
+  }
+});
+
+passwordInput.addEventListener("input", updatePasswordHint);
 
 authForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -165,5 +217,6 @@ logoutButton.addEventListener("click", () => {
 });
 
 setMode("login");
+updatePasswordHint();
 showAuthView();
 showMessage("Use the buttons above to log in or create an account.");
