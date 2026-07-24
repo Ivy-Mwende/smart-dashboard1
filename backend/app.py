@@ -7,6 +7,7 @@ from functools import wraps
 import bcrypt
 import jwt
 from flask import Flask, g, jsonify, request
+from flask_cors import CORS
 from flask_jwt_extended import JWTManager, create_access_token
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -24,6 +25,7 @@ app.config["JWT_TOKEN_LOCATION"] = ["headers"]
 app.config["JWT_HEADER_TYPE"] = "Bearer"
 
 JWTManager(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 LOGIN_ATTEMPTS = defaultdict(list)
 

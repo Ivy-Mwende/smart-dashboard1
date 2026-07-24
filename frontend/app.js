@@ -3,11 +3,21 @@ const authForm = document.getElementById("auth-form");
 const nameInput = document.getElementById("name");
 const emailInput = document.getElementById("email");
 const passwordInput = document.getElementById("password");
+const authSubmit = document.getElementById("auth-submit");
+const authMessage = document.getElementById("auth-message");
 const accountsList = document.getElementById("accounts-list");
 const transactionsList = document.getElementById("transactions-list");
 const insightsList = document.getElementById("insights-list");
+const balanceValue = document.getElementById("balance-value");
+const summaryPill = document.getElementById("summary-pill");
+const authSection = document.getElementById("auth-section");
+const dashboardSection = document.getElementById("dashboard-section");
+const logoutButton = document.getElementById("logout-btn");
+const modeButtons = document.querySelectorAll(".tab-btn");
+const actionButtons = document.querySelectorAll(".action-btn");
 
 let token = "";
+let mode = "login";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -18,67 +28,142 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function showMessage(message, type = "info") {
+  authMessage.textContent = message;
+  authMessage.className = `message${type === "error" ? " error" : ""}`;
+}
+
+function setMode(nextMode) {
+  mode = nextMode;
+  document.getElementById("name-field").style.display = nextMode === "register" ? "block" : "none";
+  authSubmit.textContent = nextMode === "register" ? "Create account" : "Log in";
+  modeButtons.forEach((button) => button.classList.toggle("active", button.dataset.mode === nextMode));
+}
+
+function showDashboardView() {
+  authSection.hidden = true;
+  dashboardSection.hidden = false;
+  logoutButton.hidden = false;
+}
+
+function showAuthView() {
+  authSection.hidden = false;
+  dashboardSection.hidden = true;
+  logoutButton.hidden = true;
+}
+
 async function request(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(`${apiBase}${path}`, { ...options, headers, credentials: "include" });
+  const response = await fetch(`${apiBase}${path}`, { ...options, headers });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `Request failed with ${response.status}`);
+  }
   return response;
 }
 
-async function loginOrRegister(isRegister) {
+async function loginOrRegister() {
   const payload = {
-    name: nameInput.value,
-    email: emailInput.value,
+    name: nameInput.value.trim(),
+    email: emailInput.value.trim(),
     password: passwordInput.value,
   };
-  if (!isRegister) delete payload.name;
+  if (mode === "login") delete payload.name;
+  if (!payload.email || !payload.password) {
+    showMessage("Please enter your email and password.", "error");
+    return;
+  }
+  if (mode === "register" && !payload.name) {
+    showMessage("Please enter your name.", "error");
+    return;
+  }
 
-  const response = await request(`/api/${isRegister ? "register" : "login"}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const data = await response.json();
-  if (data.access_token) {
+  try {
+    const response = await request(`/api/${mode === "register" ? "register" : "login"}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!data.access_token) {
+      throw new Error("No access token returned.");
+    }
     token = data.access_token;
-    loadDashboard();
+    showMessage(mode === "register" ? "Account created successfully." : "Welcome back.");
+    showDashboardView();
+    await loadDashboard();
+  } catch (error) {
+    showMessage(error.message || "Unable to connect to the server.", "error");
   }
 }
 
 async function loadDashboard() {
-  const [accountsRes, transactionsRes, insightsRes] = await Promise.all([
-    request("/api/accounts"),
-    request("/api/transactions"),
-    request("/api/insights"),
-  ]);
+  try {
+    const [accountsRes, transactionsRes, insightsRes] = await Promise.all([
+      request("/api/accounts"),
+      request("/api/transactions"),
+      request("/api/insights"),
+    ]);
 
-  const accounts = await accountsRes.json();
-  const transactions = await transactionsRes.json();
-  const insights = await insightsRes.json();
+    const accounts = await accountsRes.json();
+    const transactions = await transactionsRes.json();
+    const insights = await insightsRes.json();
 
-  accountsList.innerHTML = accounts.map((a) => `<li>${escapeHtml(a.account_type)}: $${escapeHtml(a.balance)}</li>`).join("");
-  transactionsList.innerHTML = transactions.map((t) => `<li>${escapeHtml(t.description)}: $${escapeHtml(t.amount)}</li>`).join("");
-  insightsList.innerHTML = insights.map((i) => `<li>${escapeHtml(i.prediction)}</li>`).join("");
+    const total = accounts.reduce((sum, account) => sum + Number(account.balance || 0), 0);
+    balanceValue.textContent = `$${total.toFixed(2)}`;
+    summaryPill.textContent = accounts.length ? "Active" : "Ready";
 
-  renderChart(transactions);
+    accountsList.innerHTML = accounts.map((account) => `<li>${escapeHtml(account.account_type)} • $${escapeHtml(account.balance)}</li>`).join("");
+    transactionsList.innerHTML = transactions.map((transaction) => `<li>${escapeHtml(transaction.description)} • $${escapeHtml(transaction.amount)}</li>`).join("");
+    insightsList.innerHTML = insights.map((insight) => `<li>${escapeHtml(insight.prediction)}</li>`).join("");
+
+    renderChart(transactions);
+  } catch (error) {
+    showMessage(error.message || "Unable to load your dashboard.", "error");
+  }
 }
 
 function renderChart(transactions) {
-  const data = transactions.slice(0, 5).map((t) => t.amount);
-  const labels = transactions.slice(0, 5).map((t) => t.description);
+  if (!window.Chart) return;
+  const data = transactions.slice(0, 5).map((transaction) => Number(transaction.amount || 0));
+  const labels = transactions.slice(0, 5).map((transaction) => transaction.description || "Item");
   const ctx = document.getElementById("spending-chart").getContext("2d");
   new Chart(ctx, {
     type: "pie",
     data: {
       labels,
-      datasets: [{ data, backgroundColor: ["#c8a2c8", "#7f5af0", "#4cc9f0", "#f72585", "#2ec4b6"] }],
+      datasets: [{ data, backgroundColor: ["#7c4dff", "#31c4ff", "#ff7eb6", "#00d7a0", "#ffd166"] }],
     },
+    options: { plugins: { legend: { labels: { color: "#f9f4ff" } } } },
   });
 }
 
-authForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  loginOrRegister(true);
+actionButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const action = button.dataset.action;
+    if (action === "pay") summaryPill.textContent = "Pay ready";
+    if (action === "send") summaryPill.textContent = "Send flow open";
+    if (action === "save") summaryPill.textContent = "Savings goal set";
+    if (action === "insights") summaryPill.textContent = "Insights refreshed";
+    showMessage(`Action selected: ${action}`);
+  });
 });
 
-if (token) loadDashboard();
+modeButtons.forEach((button) => button.addEventListener("click", () => setMode(button.dataset.mode)));
+
+authForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  loginOrRegister();
+});
+
+logoutButton.addEventListener("click", () => {
+  token = "";
+  authForm.reset();
+  showAuthView();
+  showMessage("Signed out. You can log in again anytime.");
+});
+
+setMode("login");
+showAuthView();
+showMessage("Use the buttons above to log in or create an account.");
