@@ -23,10 +23,45 @@ app.config["JWT_TOKEN_LOCATION"] = ["headers"]
 app.config["JWT_HEADER_TYPE"] = "Bearer"
 
 JWTManager(app)
-allowed_origin = os.getenv("ALLOWED_ORIGIN") or os.getenv("NETLIFY_DOMAIN") or "https://smartdashboard-ivy.netlify.app"
-CORS(app, resources={r"/api/*": {"origins": [allowed_origin, "http://localhost:5500", "http://127.0.0.1:5500"]}})
+
+
+def get_allowed_origins() -> list[str]:
+    configured = []
+    for raw_value in [os.getenv("ALLOWED_ORIGIN"), os.getenv("NETLIFY_DOMAIN")]:
+        if raw_value:
+            configured.extend([item.strip() for item in raw_value.split(",") if item.strip()])
+    return configured + [
+        "https://smartdashboard-ivy.netlify.app",
+        "https://www.smartdashboard-ivy.netlify.app",
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+    ]
+
+
+ALLOWED_ORIGINS = get_allowed_origins()
+CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
 LOGIN_ATTEMPTS = defaultdict(list)
+
+
+@app.after_request
+def add_cors_headers(response):
+    origin = request.headers.get("Origin")
+    if request.path.startswith("/api/") and origin and origin in ALLOWED_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Vary"] = "Origin"
+        if request.method == "OPTIONS":
+            response.status_code = 204
+            response.headers["Content-Length"] = "0"
+    return response
+
+
+@app.route("/api/<path:path>", methods=["OPTIONS"])
+def api_options(path):
+    return "", 204
 
 
 def is_rate_limited(identifier: str, limit: int = 10, window_seconds: int = 60) -> bool:
