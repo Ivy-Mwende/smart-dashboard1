@@ -175,7 +175,7 @@ async function parseJsonResponse(response) {
 }
 
 async function request(path, options = {}) {
-  if (path.includes("/api/register") || path.includes("/api/login")) {
+  if (path.includes("/api/register") || path.includes("/api/login") || path.includes("/api/accounts") || path.includes("/api/transactions") || path.includes("/api/insights")) {
     usingLocalFallback = true;
     return getLocalFallback(path, options);
   }
