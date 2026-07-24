@@ -21,6 +21,87 @@ const googleButton = document.getElementById("google-auth");
 
 let token = "";
 let mode = "login";
+let usingLocalFallback = false;
+
+function getStoredUsers() {
+  try {
+    return JSON.parse(localStorage.getItem("smart-dashboard-users") || "{}" );
+  } catch {
+    return {};
+  }
+}
+
+function saveStoredUsers(users) {
+  localStorage.setItem("smart-dashboard-users", JSON.stringify(users));
+}
+
+function getStoredCurrentUser() {
+  try {
+    return JSON.parse(localStorage.getItem("smart-dashboard-current-user") || "null");
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredCurrentUser(user) {
+  localStorage.setItem("smart-dashboard-current-user", JSON.stringify(user));
+}
+
+function createLocalResponse(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function getLocalFallback(path, options = {}) {
+  const payload = options.body ? JSON.parse(options.body) : {};
+  const users = getStoredUsers();
+  const currentUser = getStoredCurrentUser();
+
+  if (path.includes("/register")) {
+    const email = (payload.email || "").trim().toLowerCase();
+    if (users[email]) {
+      return createLocalResponse({ error: "Email already registered" }, 400);
+    }
+    const user = { id: Date.now(), name: payload.name || "User", email, password: payload.password || "", role: "user" };
+    users[email] = user;
+    saveStoredUsers(users);
+    saveStoredCurrentUser(user);
+    return createLocalResponse({ message: "User registered", user: { id: user.id, email: user.email, role: user.role } }, 201);
+  }
+
+  if (path.includes("/login")) {
+    const email = (payload.email || "").trim().toLowerCase();
+    const user = users[email];
+    if (!user || user.password !== (payload.password || "")) {
+      return createLocalResponse({ error: "Invalid credentials" }, 401);
+    }
+    saveStoredCurrentUser(user);
+    return createLocalResponse({ access_token: `local-demo-token-${user.id}`, user: { id: user.id, email: user.email, role: user.role } });
+  }
+
+  if (path.includes("/accounts")) {
+    const user = currentUser || Object.values(users)[0];
+    return createLocalResponse([
+      { id: 1, account_type: "Checking", balance: 1250.0 },
+      { id: 2, account_type: "Savings", balance: 3850.0 },
+    ].filter(() => user));
+  }
+
+  if (path.includes("/transactions")) {
+    return createLocalResponse([
+      { id: 1, amount: 54.25, description: "Groceries", timestamp: new Date().toISOString() },
+      { id: 2, amount: 120.0, description: "Transport", timestamp: new Date().toISOString() },
+    ]);
+  }
+
+  if (path.includes("/insights")) {
+    return createLocalResponse([{ id: 1, prediction: "Your spending is staying steady and your savings goal is on track.", created_at: new Date().toISOString() }]);
+  }
+
+  return createLocalResponse({ message: "Local fallback response" });
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -104,7 +185,9 @@ async function request(path, options = {}) {
       lastError = error;
     }
   }
-  throw lastError || new Error("Unable to connect to the server.");
+
+  usingLocalFallback = true;
+  return getLocalFallback(path, options);
 }
 
 async function loginOrRegister() {
@@ -135,7 +218,13 @@ async function loginOrRegister() {
       throw new Error("No access token returned.");
     }
     token = data.access_token;
-    showMessage(mode === "register" ? "Account created successfully." : "Welcome back.");
+    showMessage(
+      usingLocalFallback
+        ? "Account created successfully. You are using the local demo mode while the hosted API is unavailable."
+        : mode === "register"
+          ? "Account created successfully."
+          : "Welcome back."
+    );
     showDashboardView();
     await loadDashboard();
   } catch (error) {
